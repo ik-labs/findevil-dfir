@@ -65,7 +65,8 @@ def overview():
         evidence.append({"name": f, "gb": round(st.st_size / 1e9, 2),
                          "readonly": not bool(st.st_mode & 0o222)})
     names = list(tools.READ_ONLY_TOOLS)
-    write_like = [t for t in names if any(b in t.lower() for b in ("write", "exec", "shell", "delete", "run_"))]
+    # read-only surface = every tool is a getter (get_* / detect_*); anything else is write-like
+    write_like = [t for t in names if not t.startswith(("get_", "detect_"))]
     return {
         "case": "ROCBA — Fred Rocba (SANS FOR500)", "host": "Windows 10 build 19041 x64",
         "memory_capture": "2020-11-16 02:32:38 UTC", "vacation_window": "2020-11-10 → 11-13",
@@ -75,9 +76,14 @@ def overview():
     }
 
 
+@lru_cache(maxsize=1)
+def _detected():
+    return {"timestomp": tools.detect_timestomps("high"), "masquerade": tools.detect_masquerade()}
+
+
 @app.get("/api/detect")
 def detect():
-    return {"timestomp": tools.detect_timestomps("high"), "masquerade": tools.detect_masquerade()}
+    return _detected()
 
 
 @app.get("/api/casefindings")
@@ -88,8 +94,8 @@ def casefindings():
             "web": tools.get_web_activity(), "execution": tools.get_program_execution()}
 
 
-@app.get("/api/traces")
-def traces():
+@lru_cache(maxsize=1)
+def _traces():
     procs = tools._mem.get_process_list(STRUCTURED)
     ents = tools._ts.parse_bodyfile(BODYFILE)
 
@@ -103,6 +109,11 @@ def traces():
         return _engine.investigate_masquerade(name, rec["path"], str(entry), procs)
 
     return {"timestomp": ts_trace(104046), "masquerade": mq_trace(104210, "svchost.exe")}
+
+
+@app.get("/api/traces")
+def traces():
+    return _traces()
 
 
 @lru_cache(maxsize=1)
