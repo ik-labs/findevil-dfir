@@ -111,6 +111,7 @@ async def run(task: str, model: str, max_rounds: int, trace_path: str | None, em
 
     def _round_ev(rl):
         return {"type": "round", "round": rl["round"], "ts": rl["ts"], "assistant": rl["assistant"],
+                "token_usage": rl.get("token_usage"),
                 "tool_calls": [{"name": c["name"], "args": c["args"],
                                 "result_preview": c["result_preview"][:300]} for c in rl["tool_calls"]]}
 
@@ -127,7 +128,8 @@ async def run(task: str, model: str, max_rounds: int, trace_path: str | None, em
                 await asyncio.sleep(delay)
                 delay = min(delay * 1.6, 30)
 
-    transcript = {"started": _now(), "model": model, "task": task, "rounds": []}
+    transcript = {"started": _now(), "model": model, "task": task, "rounds": [],
+                  "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
     params = StdioServerParameters(command="python3", args=[MCP_SERVER])
 
     async with stdio_client(params) as (r, w):
@@ -146,7 +148,15 @@ async def run(task: str, model: str, max_rounds: int, trace_path: str | None, em
                 resp = await _complete(
                     model=model, messages=messages, tools=tools, tool_choice="auto", temperature=0)
                 msg = resp.choices[0].message
-                round_log = {"round": rnd, "ts": _now(), "assistant": msg.content, "tool_calls": []}
+                _u = getattr(resp, "usage", None)
+                usage = ({"prompt_tokens": getattr(_u, "prompt_tokens", None),
+                          "completion_tokens": getattr(_u, "completion_tokens", None),
+                          "total_tokens": getattr(_u, "total_tokens", None)} if _u else None)
+                if usage:
+                    for _k in transcript["token_usage"]:
+                        transcript["token_usage"][_k] += usage.get(_k) or 0
+                round_log = {"round": rnd, "ts": _now(), "assistant": msg.content,
+                             "tool_calls": [], "token_usage": usage}
 
                 assistant_entry = {"role": "assistant", "content": msg.content or ""}
                 if msg.tool_calls:
@@ -204,14 +214,21 @@ def _main() -> int:
 
     if not args.quiet:
         for rl in t["rounds"]:
-            print(f"\n── round {rl['round']} ({rl['ts']}) ──")
+            tu = rl.get("token_usage") or {}
+            tok = f" · tokens: {tu.get('total_tokens','?')} (in {tu.get('prompt_tokens','?')}/out {tu.get('completion_tokens','?')})" if tu else ""
+            print(f"\n── round {rl['round']} ({rl['ts']}){tok} ──")
             if rl["assistant"]:
                 print("agent:", rl["assistant"][:1000])
             for c in rl["tool_calls"]:
                 print(f"  → tool {c['name']}({json.dumps(c['args'])})")
                 print(f"    {c['result_preview'][:300]}")
+    tt = t.get("token_usage") or {}
     print("\n================ FINAL REPORT ================\n")
     print(t["final_report"])
+    print(f"\n[execution log] rounds: {len(t['rounds'])} · "
+          f"total tokens: {tt.get('total_tokens','?')} "
+          f"(prompt {tt.get('prompt_tokens','?')} / completion {tt.get('completion_tokens','?')}) · "
+          f"trace: {args.trace_out or '(not saved)'}")
     return 0
 
 
