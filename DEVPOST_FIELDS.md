@@ -34,7 +34,7 @@ Paste the full contents of `DEVPOST_STORY.md`.
 
 ## Demo video
 ```
-<paste your YouTube/Vimeo/Youku link here after upload>
+https://youtu.be/IGUvMeDxbfs
 ```
 
 ---
