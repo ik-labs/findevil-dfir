@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "findevil": {
+      "command": "python3",
+      "args": ["/home/ubuntu/cases/rocba/findevil/mcp_server/server.py"],
+      "env": { "FINDEVIL_CASE": "/home/ubuntu/cases/rocba" }
+    }
+  }
+}

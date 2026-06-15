@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FIND EVIL! — cross-source contradiction detection</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#080b11; color:#c9d4e3; font-family: ui-sans-serif, system-ui, sans-serif; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .panel { background:linear-gradient(180deg,#11161f,#0d121a); border:1px solid #1e2735; }
+  .glow { box-shadow:0 0 0 1px #1e2735, 0 12px 40px -12px rgba(0,0,0,.7); }
+  .scan { background-image:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.015) 3px); }
+  @keyframes pop { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  .pop { animation:pop .45s ease both; }
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  .pulse { animation:pulse 1.4s ease-in-out infinite; }
+  .grid-bg { background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.04) 1px, transparent 0); background-size:22px 22px; }
+</style>
+</head>
+<body class="grid-bg">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const api = (p) => fetch(p).then(r => r.json());
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const now = () => { const d=new Date();
+  return d.toTimeString().slice(0,8)+"."+String(d.getMilliseconds()).padStart(3,"0"); };
+
+const C = { evil:"#ff5c6c", warn:"#f5a623", ok:"#3ddc84", disk:"#5aa9ff", mem:"#c08cff", mut:"#6b7785" };
+const Tag = ({children, color}) => (
+  <span className="mono text-[11px] px-2 py-0.5 rounded-full border"
+        style={{borderColor:color+"55", color, background:color+"14"}}>{children}</span>
+);
+const Dot = ({color}) => <span className="inline-block w-2 h-2 rounded-full" style={{background:color}} />;
+const Note = ({children, color=C.disk}) => (
+  <div className="mono text-[11px] text-slate-400 leading-relaxed flex gap-2 rounded-lg p-2.5 mb-3"
+       style={{background:color+"0c", border:"1px solid "+color+"26"}}>
+    <span className="shrink-0" style={{color}}>ⓘ</span><span>{children}</span>
+  </div>
+);
+
+function HowToRead() {
+  return (
+    <div className="panel rounded-2xl p-4">
+      <div className="font-semibold mb-2 flex items-center gap-2">🧭 How to read this report</div>
+      <div className="mono text-[11px] text-slate-400 leading-relaxed">
+        On-disk metadata is <span style={{color:C.evil}}>easy for an attacker to forge</span>; what a machine
+        is <span style={{color:C.mem}}>actually running in memory</span> is far harder to fake. This tool reads
+        both from the <em>same</em> Windows host and looks for places where they <b>disagree</b> — a contradiction
+        is the evil. Each finding below is shown as a&nbsp;
+        <span style={{color:C.disk}}>◆ DISK claim</span> <span style={{color:C.evil}}>⚔</span>&nbsp;
+        <span style={{color:C.mem}}>◆ MEMORY (or canonical-path) fact</span> that breaks it. Then you see the
+        engine’s <b>self-correction</b> (how a naive first look misses it), and an <b>accuracy score</b> graded
+        against a hidden answer key. Nothing here can modify the evidence — the tools are read-only by construction.
+        <br/><br/>
+        This report has <b>two clearly-separated parts</b>: a <span style={{color:C.warn}}>🧪 METHOD VALIDATION</span>
+        on contradictions <em>we planted</em> (to prove the method is accurate and falsifiable), and the
+        <span style={{color:C.evil}}> 🌐 REAL CASE FINDINGS</span> — the actual ROCBA intrusion the same read-only
+        tools surfaced from un-planted evidence.
+      </div>
+    </div>
+  );
+}
+
+function Header({ov, onRun, onAgent, running, done}) {
+  return (
+    <div className="panel glow rounded-2xl p-5 mb-5 scan">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🛰️</span>
+            <h1 className="text-2xl font-bold tracking-tight">FIND <span style={{color:C.evil}}>EVIL!</span></h1>
+            <Tag color={C.mut}>Custom MCP Server · cross-source contradiction detection</Tag>
+          </div>
+          <div className="mono text-xs text-slate-400 mt-1">
+            {ov ? `${ov.case}  ·  ${ov.host}  ·  mem captured ${ov.memory_capture}` : "loading case…"}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onAgent} disabled={running}
+            className="mono text-sm font-semibold px-4 py-3 rounded-xl transition active:scale-95 disabled:opacity-50 border"
+            style={{background:"#0d121a", borderColor:C.mem+"66", color:C.mem}}>
+            🤖 LIVE AI AGENT
+          </button>
+          <button onClick={onRun} disabled={running}
+            className="mono text-sm font-semibold px-5 py-3 rounded-xl transition active:scale-95 disabled:opacity-50"
+            style={{background:running?"#1e2735":C.evil, color:running?C.mut:"#0a0a0a"}}>
+            {running ? "⏳ investigating…" : done ? "↻ re-run" : "▶ RUN INVESTIGATION"}
+          </button>
+        </div>
+      </div>
+      {ov && (
+        <div className="flex gap-3 mt-4 flex-wrap">
+          <Badge ok={ov.integrity.originals_readonly} label="evidence read-only" />
+          <Badge ok={ov.integrity.write_or_exec_tools===0}
+                 label={`${ov.integrity.write_or_exec_tools} write/exec tools`} />
+          <Badge ok={true} label={`${ov.tools.length} typed read-only tools`} />
+          <Badge ok={true} label="every call audited" />
+        </div>
+      )}
+    </div>
+  );
+}
+const Badge = ({ok, label}) => (
+  <div className="flex items-center gap-2 mono text-xs px-3 py-1.5 rounded-lg border"
+       style={{borderColor:(ok?C.ok:C.evil)+"40", background:(ok?C.ok:C.evil)+"10"}}>
+    <span>{ok?"✓":"✕"}</span><span style={{color:ok?C.ok:C.evil}}>{label}</span>
+  </div>
+);
+
+function Evidence({ov}) {
+  if (!ov) return null;
+  return (
+    <div className="grid md:grid-cols-2 gap-4 mb-5">
+      {ov.evidence.map((e,i)=>(
+        <div key={i} className="panel rounded-xl p-4 flex items-center justify-between pop" style={{animationDelay:i*60+"ms"}}>
+          <div>
+            <div className="mono text-sm">{e.name}</div>
+            <div className="mono text-xs text-slate-500">{e.gb} GB · {/zip/.test(e.name)?"memory":"disk"} source</div>
+          </div>
+          <Tag color={e.readonly?C.ok:C.evil}>{e.readonly?"r--r--r-- read-only":"WRITABLE"}</Tag>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const TLRow = ({date, children, evil}) => (
+  <div className="flex gap-3 items-start">
+    <span className="mono text-[11px] shrink-0 px-2 py-0.5 rounded"
+          style={{background:(evil?C.evil:C.mut)+"18", color:evil?C.evil:"#9fb0c3", minWidth:"6.2rem", textAlign:"center"}}>{date}</span>
+    <span className="mono text-[11px] leading-relaxed" style={{color:evil?C.evil:"#aab6c6"}}>{children}</span>
+  </div>
+);
+const Pill = ({icon, title, children, color}) => (
+  <div className="rounded-xl p-3 border" style={{borderColor:color+"33", background:color+"0a"}}>
+    <div className="flex items-center gap-2 mb-1"><span>{icon}</span>
+      <span className="mono text-xs font-semibold" style={{color}}>{title}</span></div>
+    <div className="mono text-[11px] text-slate-400 leading-relaxed">{children}</div>
+  </div>
+);
+
+function Briefing({ov}) {
+  return (
+    <div className="flex flex-col gap-5 mb-5">
+      {/* the challenge */}
+      <div className="panel glow rounded-2xl p-5 scan">
+        <div className="flex items-center gap-2 mb-2">
+          <Tag color={C.evil}>SANS · Find Evil!</Tag>
+          <span className="mono text-xs text-slate-500">the challenge</span>
+        </div>
+        <div className="text-[15px] leading-relaxed text-slate-200">
+          Given a <b>disk image</b> and a <b>memory capture</b> from the same Windows host, <b>find the evil</b>.
+          The catch: an adversary tampered with the on-disk evidence to cover their tracks. Can an autonomous
+          AI agent see through the deception — <span style={{color:C.evil}}>without being fooled by forged
+          metadata</span>, and <span style={{color:C.ok}}>without ever modifying the evidence</span>?
+        </div>
+      </div>
+
+      {/* the case */}
+      <div className="panel rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">🗂️</span>
+          <span className="font-semibold">The case — the Fred Rocba intrusion</span>
+          <Tag color={C.mut}>SANS FOR500 dataset</Tag>
+        </div>
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="text-[13px] text-slate-300 leading-relaxed">
+            <b style={{color:C.mem}}>Fred Rocba</b> is a brand-new engineer (hired 2020-10-24) at
+            <b> STARK Research Labs</b> — a firm doing defensive &amp; biotech R&amp;D. He works from home on an
+            SRL-issued <b>Microsoft Surface</b> (Windows 10), heavily <b>OneDrive</b>-synced, single user.
+            <br/><br/>
+            While Fred was away on a <b>pre-planned Disney vacation</b>, his home was
+            <span style={{color:C.evil}}> broken into and the intruder went straight for his SRL laptop</span>.
+            It’s unknown what intellectual property was stolen — or how. We’re handed the
+            <b> disk image and the memory capture</b> and asked to find out what the attacker did and tried to hide.
+          </div>
+          <div className="flex flex-col gap-2 justify-center">
+            <TLRow date="2020-10-24">hired at SRL · new Surface shipped from Microsoft</TLRow>
+            <TLRow date="2020-10-26">starts work — remote, RDP + cloud apps</TLRow>
+            <TLRow date="2020-11-10">leaves on planned vacation (Disney)</TLRow>
+            <TLRow date="2020-11-13" evil>home break-in · SRL laptop targeted ← the window</TLRow>
+            <TLRow date="2020-11-16">disk + memory acquired for analysis</TLRow>
+          </div>
+        </div>
+        {ov && <div className="mono text-[11px] text-slate-500 mt-3 pt-3" style={{borderTop:"1px solid #1a2230"}}>
+          {ov.host} · Eastern Time (EST5EDT) · Office 365 / OneDrive · memory captured {ov.memory_capture}
+        </div>}
+      </div>
+
+      {/* our approach */}
+      <div className="panel rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">🛡️</span><span className="font-semibold">How we hunt</span>
+          <Tag color={C.disk}>Custom MCP Server · model-agnostic agent</Tag>
+        </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <Pill icon="🔒" title="Read-only by construction" color={C.ok}>
+            The agent can only call typed forensic tools. There is no shell and no write tool — it
+            <b> physically cannot alter the evidence</b>. Integrity is architectural, not a prompt promise.
+          </Pill>
+          <Pill icon="⚔" title="Cross-source contradiction" color={C.disk}>
+            It checks disk metadata against what’s <b>actually running in memory</b>. Forged on one side,
+            truth on the other — <b>the gap is the evil</b> a single-source look would miss.
+          </Pill>
+          <Pill icon="🎯" title="Self-correct, then scored" color={C.warn}>
+            It distrusts its first impression and corrects across sources, then is graded against a
+            <b> hidden answer key the model never sees</b> — so the result can’t be gamed.
+          </Pill>
+        </div>
+      </div>
+
+      {/* call to run */}
+      <div className="panel rounded-2xl p-4 text-center mono text-[12px] text-slate-400">
+        Two ways to work the incident → <span style={{color:C.evil}}>▶ RUN INVESTIGATION</span> (the deterministic
+        engine, narrated live) or <span style={{color:C.mem}}>🤖 LIVE AI AGENT</span> (watch a Cerebras model drive
+        the read-only tools in real time). Both end in the same scored, cross-source verdict.
+      </div>
+    </div>
+  );
+}
+
+function verdictColor(v){
+  if(/confirmed/.test(v)) return C.evil;
+  if(/masquerade|suspected/.test(v)) return C.warn;
+  if(/benign/.test(v)) return C.mut;
+  return C.warn;
+}
+
+function ContradictionCard({f, kind}) {
+  const isTs = kind==="timestomp";
+  const mitre = isTs ? "T1070.006 · Timestomp" : "T1036 · Masquerade";
+  return (
+    <div className="panel glow rounded-2xl p-5 pop">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Dot color={C.evil} /><span className="font-semibold">{f.path.split("/").pop()}</span>
+        </div>
+        <Tag color={C.evil}>{mitre}</Tag>
+      </div>
+      <div className="mono text-[11px] text-slate-500 mb-3 break-all">{f.path}</div>
+      <Note color={C.evil}>
+        {isTs
+          ? <>This file’s <b>creation date was rolled back</b> to look years old and harmless (<b>timestomp</b>,
+            MITRE&nbsp;T1070.006). The date Explorer shows (<b>$SI</b>) is attacker-editable; the copy buried in the
+            $MFT (<b>$FN</b>) is not — and they disagree. A process running from this file in memory proves it’s
+            actually recent. Three independent sources, one verdict.</>
+          : <>This file is <b>named like a trusted Windows system program</b> (svchost.exe) but sits in a user
+            folder instead of <span className="text-slate-300">System32</span> (<b>masquerade</b>, MITRE&nbsp;T1036).
+            The familiar name is the disguise; the wrong location gives it away — caught on disk even though it
+            wasn’t running.</>}
+      </Note>
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-stretch">
+        <div className="rounded-xl p-3 border" style={{borderColor:C.disk+"33", background:C.disk+"0c"}}>
+          <div className="mono text-xs mb-2" style={{color:C.disk}}>◆ DISK ($MFT)</div>
+          {isTs ? (<>
+            <Row k="$SI created" v={f.si_crtime} bad/>
+            <Row k="$FN created" v={f.fn_crtime}/>
+            <Row k="backdated" v={f.backdate_days+" days"} bad/>
+            <div className="mono text-[10px] text-slate-600 mt-1.5 leading-snug">
+              $SI = time shown in Explorer (forgeable) · $FN = time inside $MFT (resists timestomp)</div>
+          </>) : (<>
+            <Row k="name" v={f.name} bad/>
+            <Row k="found at" v={f.path}/>
+            <Row k="should be" v={(f.expected||[])[0]}/>
+          </>)}
+        </div>
+        <div className="flex flex-col items-center justify-center px-1">
+          <div className="text-xl pulse" style={{color:C.evil}}>⚔</div>
+          <div className="mono text-[10px]" style={{color:C.evil}}>CONFLICT</div>
+        </div>
+        <div className="rounded-xl p-3 border" style={{borderColor:C.mem+"33", background:C.mem+"0c"}}>
+          <div className="mono text-xs mb-2" style={{color:C.mem}}>◆ MEMORY</div>
+          {isTs ? (<>
+            <Row k="process" v={"pid "+(f.memory?.matched_pid)} ok/>
+            <Row k="started" v={f.memory?.process_start}/>
+            <Row k="→ proves" v={"recent, not 2019"} ok/>
+          </>) : (
+            <div className="mono text-xs text-slate-400 leading-relaxed">
+              no process executes from this path — disk-resident masquerade (name+location).
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mono text-[11px] text-slate-400 mt-3 leading-relaxed">{f.reasoning}</div>
+      <div className="flex flex-wrap gap-2 mt-3">
+        {(f.provenance||[]).map((p,i)=><Tag key={i} color={C.mut}>{p}</Tag>)}
+      </div>
+    </div>
+  );
+}
+const Row = ({k,v,bad,ok}) => (
+  <div className="flex justify-between gap-3 py-0.5">
+    <span className="mono text-[11px] text-slate-500">{k}</span>
+    <span className="mono text-[11px] text-right" style={{color:bad?C.evil:ok?C.ok:"#c9d4e3"}}>{v}</span>
+  </div>
+);
+
+function SelfCorrection({trace, title}) {
+  if(!trace) return null;
+  return (
+    <div className="panel rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-semibold">{title}</div>
+        <Tag color={C.ok}>caught @ iteration {trace.caught_at_iteration}</Tag>
+      </div>
+      <Note color={C.warn}>
+        The engine starts <b>deliberately naive</b> — it trusts the obvious signal and <span style={{color:C.evil}}>misses</span>{" "}
+        the evil on the first pass (a one-shot tool would stop here). Each <span style={{color:C.warn}}>⚠ gap</span> names
+        what a single source can’t prove, pushing it to check another source. It keeps correcting until the
+        contradiction is confirmed (<span style={{color:C.ok}}>CATCH</span>). This is the “never trust one source” loop.
+      </Note>
+      <div className="flex flex-col gap-2">
+        {trace.trace.map((s,i)=>{
+          const col = verdictColor(s.working_verdict);
+          return (
+            <div key={i} className="flex gap-3 pop" style={{animationDelay:i*120+"ms"}}>
+              <div className="flex flex-col items-center">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center mono text-xs font-bold"
+                     style={{background:col+"22", color:col, border:"1px solid "+col+"66"}}>{s.iteration}</div>
+                {i<trace.trace.length-1 && <div className="w-px flex-1 my-1" style={{background:"#28323f"}}/>}
+              </div>
+              <div className="pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="mono text-xs" style={{color:col}}>{s.working_verdict}</span>
+                  {/benign/.test(s.working_verdict) && i===0 && <Tag color={C.evil}>one-shot MISS</Tag>}
+                  {/confirmed|masquerade/.test(s.working_verdict) && <Tag color={C.ok}>CATCH</Tag>}
+                </div>
+                <div className="mono text-[11px] text-slate-300 mt-1">{s.hypothesis}</div>
+                <div className="mono text-[11px] text-slate-500 mt-1">↳ self-check: {s.self_check}</div>
+                {s.gap && <div className="mono text-[11px] mt-0.5" style={{color:C.warn}}>⚠ gap: {s.gap}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Scoreboard({m}) {
+  if(!m) return null;
+  const t = m.metrics.totals;
+  return (
+    <div className="panel glow rounded-2xl p-5">
+      <div className="font-semibold mb-3">Accuracy — scored vs a key the model never sees</div>
+      <Note color={C.ok}>
+        <b>catch @ iter 1</b> = what a first-impression look would catch (the forged fields fool it → 0/2).
+        <b> catch @ final</b> = what survives cross-source self-correction (2/2). The grading is automatic against a
+        <b> hidden ground-truth key the model never reads</b>, so it can’t game the score. <b>0 false positives</b> =
+        it stayed quiet on the {m.candidates} benign files it also scanned; <b>0 false negatives</b> = it missed nothing.
+      </Note>
+      <div className="flex items-center justify-center gap-6 mb-5">
+        <Big n={t.catch_at_iter1+"/"+t.injections} label="catch @ iter 1" sub={(t.iter1_catch_rate*100)+"%"} color={C.evil}/>
+        <div className="text-2xl" style={{color:C.ok}}>→</div>
+        <Big n={t.catch_at_final+"/"+t.injections} label="catch @ final" sub={(t.final_catch_rate*100)+"%"} color={C.ok}/>
+        <div className="flex flex-col gap-2 ml-2">
+          <Chip ok label={`${t.false_positives} false positives`} />
+          <Chip ok label={`${t.false_negatives} false negatives`} />
+          <Chip ok label={`${m.candidates} candidates scanned`} />
+        </div>
+      </div>
+      <table className="w-full mono text-xs">
+        <thead><tr className="text-slate-500 text-left">
+          <th className="py-1">injection</th><th>type</th><th>result</th><th>caught@</th></tr></thead>
+        <tbody>
+          {m.metrics.per_injection.map((p,i)=>(
+            <tr key={i} className="border-t" style={{borderColor:"#1a2230"}}>
+              <td className="py-1.5">{p.inj_id}</td><td>{p.type}</td>
+              <td style={{color:p.result==="TP"?C.ok:C.evil}}>{p.result==="TP"?"✓ caught":"✕ missed"}</td>
+              <td>iter {p.caught_at_iteration}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+const Big = ({n,label,sub,color}) => (
+  <div className="text-center">
+    <div className="text-3xl font-bold mono" style={{color}}>{sub}</div>
+    <div className="mono text-xs text-slate-400">{label}</div>
+    <div className="mono text-[10px] text-slate-600">{n}</div>
+  </div>
+);
+const Chip = ({ok,label}) => (
+  <span className="mono text-[11px] px-2 py-1 rounded-md border" style={{borderColor:C.ok+"33",color:C.ok,background:C.ok+"0c"}}>✓ {label}</span>
+);
+
+function Audit({lines}) {
+  if(!lines?.length) return null;
+  return (
+    <div className="panel rounded-2xl p-5">
+      <div className="font-semibold mb-3">MCP audit trail <span className="mono text-xs text-slate-500">— every tool call logged</span></div>
+      <Note color={C.mut}>
+        Every fact in this report came from a <b>typed, read-only MCP tool call</b>, logged here with its timestamp and
+        the artifact it cited — full provenance, nothing hand-waved. And because the server exposes <b>no write or
+        shell tool</b>, the agent <b>could not alter the evidence</b> even if it tried: integrity is architectural, not a promise.
+      </Note>
+      <div className="mono text-[11px] flex flex-col gap-1 max-h-56 overflow-auto">
+        {lines.slice(-12).map((l,i)=>(
+          <div key={i} className="flex gap-3">
+            <span className="text-slate-600">{(l.ts||"").slice(11,19)}</span>
+            <span style={{color:C.warn}}>{l.tool}</span>
+            <span className="text-slate-500">→ {l.results} result(s)</span>
+            <span className="text-slate-600 truncate">{(l.artifacts||[])[0]||""}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const LEVELS = {
+  boot:    {c:C.mut,  t:"BOOT"},
+  mcp:     {c:C.mem,  t:"MCP "},
+  call:    {c:C.disk, t:"CALL"},
+  res:     {c:C.disk, t:"RES "},
+  mem:     {c:C.mem,  t:"MEM "},
+  conflict:{c:C.evil, t:"EVIL"},
+  engine:  {c:C.warn, t:"ENGN"},
+  score:   {c:C.ok,   t:"SCOR"},
+  ok:      {c:C.ok,   t:"OK  "},
+  done:    {c:C.ok,   t:"DONE"},
+};
+const _oneline = (s) => String(s==null?"":s).replace(/\s+/g," ").trim();
+const _argstr = (a) => { try { return JSON.stringify(a); } catch(_) { return _oneline(a); } };
+const _preview = (s) => { const t=_oneline(s); return t.length>96 ? t.slice(0,96)+"…" : t; };
+function replayRound(r, add) {
+  if (r.assistant && r.assistant.trim() && (r.tool_calls||[]).length===0)
+    add("engine", "agent: "+_preview(r.assistant));
+  for (const tc of (r.tool_calls||[])) {
+    add("call", _argstr(tc.args), tc.name+"()");
+    if (tc.result_preview) add("res", _preview(tc.result_preview), tc.name+"()");
+  }
+}
+
+function AgentReport({r}) {
+  if(!r || !r.report) return null;
+  return (
+    <div className="panel glow rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-semibold">🤖 Autonomous agent — FINDINGS</div>
+        <Tag color={C.mem}>{(r.model||"gpt-oss-120b")+" · Cerebras"+(r.live?" · live":"")}</Tag>
+      </div>
+      <pre className="mono text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed overflow-auto max-h-[26rem]"
+           style={{background:"#05070b", border:"1px solid #161d29", borderRadius:"0.6rem", padding:"0.9rem"}}>{r.report}</pre>
+    </div>
+  );
+}
+
+const SectionLabel = ({icon, title, sub, color}) => (
+  <div className="mt-2">
+    <div className="flex items-center gap-3">
+      <span className="text-lg">{icon}</span>
+      <div className="font-bold tracking-tight text-[15px]" style={{color}}>{title}</div>
+      <div className="flex-1 h-px" style={{background:color+"33"}} />
+    </div>
+    {sub && <div className="mono text-[11px] text-slate-500 mt-1 ml-9 leading-relaxed">{sub}</div>}
+  </div>
+);
+
+const _norm = (t) => (t||"").replace(" ","T");
+const _exe = (n) => { n=n||""; const i=n.lastIndexOf("\\"); return i>=0 ? n.slice(i+1) : n; };
+const _host = (u) => { try { return (u||"").replace(/^https?:\/\//,"").split("/")[0]; } catch(_) { return ""; } };
+const _tail = (p,n=38) => { p=p||""; return p.length>n ? "…"+p.slice(-n) : p; };
+const _td = (t) => _norm(t).slice(5,16).replace("T"," ");   // MM-DD HH:MM
+
+function CaseFindings({cf}) {
+  if(!cf || !cf.remote) return null;
+  const r = cf.remote, u = cf.usb || {devices:[],count:0},
+        w = cf.web || {downloads:[],download_count:0,exfil_count:0},
+        x = cf.execution || {executions:[],execution_count:0};
+  const bf = r.bruteforce || {};
+  const pivots = [...new Set((r.outbound_rdp||[]).map(o=>o.target))];
+  const exfil = (w.downloads||[]).filter(d=>d.exfil);
+
+  // merged kill-chain timeline from all four tools
+  const TLC = {remote:C.evil, usb:C.warn, exfil:C.evil, exec:C.mem};
+  const tl = [];
+  (r.sessions||[]).filter(s=>s.remote).forEach(s=>tl.push({t:_norm(s.time),k:"remote",txt:`remote RDP ${s.action} from ${s.source}`}));
+  (r.outbound_rdp||[]).forEach(o=>tl.push({t:_norm(o.time),k:"remote",txt:`outbound RDP pivot → ${o.target}`}));
+  (u.devices||[]).forEach(d=>{ if(d.last_arrival) tl.push({t:_norm(d.last_arrival),k:"usb",txt:`USB attached: ${d.friendly_name||d.serial}${d.drive_letter?" ("+d.drive_letter+")":""}`}); });
+  exfil.forEach(d=>tl.push({t:_norm(d.time),k:"exfil",txt:`download → ${_tail(d.target_path)} (from ${_host(d.source_url)})`}));
+  (x.executions||[]).forEach(e=>{ if(e.time) tl.push({t:_norm(e.time),k:"exec",txt:`ran ${_exe(e.name)}${e.run_count!=null?" ("+e.run_count+"×)":""}`}); });
+  tl.sort((a,b)=>(a.t||"").localeCompare(b.t||""));
+
+  const Card = ({title, color, children}) => (
+    <div className="rounded-xl p-3 border" style={{borderColor:color+"33", background:color+"0a"}}>
+      <div className="mono text-xs mb-2" style={{color}}>{title}</div>{children}
+    </div>
+  );
+
+  return (
+    <div className="panel glow rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="font-semibold">🌐 Real-case intrusion intel
+          <span className="mono text-xs text-slate-500"> — from read-only MCP tools</span></div>
+        <Tag color={C.mem}>get_remote_access · get_usb_devices · get_web_activity · get_program_execution</Tag>
+      </div>
+      <Note color={C.evil}>
+        The agent’s read-only tools reconstruct the <b>actual ROCBA exfiltration kill chain</b>: a
+        <b> remote RDP</b> compromise, a lateral <b>pivot</b>, <b>USB</b> media, the <b>browser downloads</b> that
+        moved corporate IP off the host, and the <b>programs</b> the actor ran. All are genuine, un-planted ROCBA
+        artifacts (RDP/Security logs, SYSTEM hive, Edge history, UserAssist) — surfaced through the audited,
+        read-only surface. The narrative interpretation (who/why, SDelete, personal accounts) is analyst-corroborated.
+      </Note>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card title="◆ REMOTE ACCESS (RDP)" color={C.evil}>
+          <Row k="remote source IP" v={(r.remote_source_ips||[]).join(", ")||"—"} bad/>
+          <Row k="outbound pivot" v={pivots.join(", ")||"—"} bad/>
+          <Row k="remote sessions" v={r.remote_session_count}/>
+          <Row k="brute-force fails" v={bf.total_failures||0} bad/>
+          {bf.top_sources && bf.top_sources.length>0 &&
+            <div className="mono text-[10px] text-slate-600 mt-1.5 leading-snug">
+              top sources: {bf.top_sources.slice(0,3).map(s=>`${s[0]} (${s[1]})`).join(" · ")}</div>}
+        </Card>
+        <Card title={`◆ REMOVABLE MEDIA (USB) · ${u.count}`} color={C.warn}>
+          <div className="mono text-[11px] flex flex-col gap-1 max-h-40 overflow-auto">
+            {(u.devices||[]).slice(0,8).map((d,i)=>(
+              <div key={i} className="flex justify-between gap-2">
+                <span className="text-slate-300 truncate">{d.friendly_name||d.serial}</span>
+                <span className="text-slate-500 shrink-0">{d.drive_letter||""} {(d.last_arrival||"").slice(0,10)}</span>
+              </div>))}
+          </div>
+        </Card>
+        <Card title={`◆ WEB / DATA EXFIL · ${w.download_count} dl · ${w.exfil_count} exfil`} color={C.evil}>
+          <div className="mono text-[11px] flex flex-col gap-1.5 max-h-40 overflow-auto">
+            {(exfil.length?exfil:(w.downloads||[]).slice(0,5)).map((d,i)=>(
+              <div key={i} className="leading-snug">
+                <div className="text-slate-300 truncate">{_tail(d.target_path,42)}</div>
+                <div className="text-slate-600">⇐ {_host(d.source_url)} · {_td(d.time)}</div>
+              </div>))}
+          </div>
+        </Card>
+        <Card title={`◆ EXECUTION (UserAssist) · ${x.execution_count}`} color={C.mem}>
+          <div className="mono text-[11px] flex flex-col gap-1 max-h-40 overflow-auto">
+            {(x.executions||[]).slice(0,8).map((e,i)=>(
+              <div key={i} className="flex justify-between gap-2">
+                <span className="text-slate-300 truncate">{_exe(e.name)}</span>
+                <span className="text-slate-500 shrink-0">{e.run_count}× {(e.time||"").slice(0,10)}</span>
+              </div>))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="rounded-xl p-3 border mt-4" style={{borderColor:"#28323f", background:"#05070b"}}>
+        <div className="mono text-xs mb-2 text-slate-300">⏱ kill-chain timeline <span className="text-slate-600">— merged from the four tools above</span></div>
+        <div className="mono text-[11px] flex flex-col gap-1 max-h-64 overflow-auto">
+          {tl.map((e,i)=>(
+            <div key={i} className="flex gap-2 items-baseline">
+              <span className="text-slate-600 shrink-0">{_td(e.t)}</span>
+              <span className="shrink-0" style={{color:TLC[e.k]}}>{e.k.toUpperCase()}</span>
+              <span className="text-slate-300">{e.txt}</span>
+            </div>))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mt-3">
+        {(r.remote_source_ips||[]).map((ip,i)=><Tag key={"i"+i} color={C.evil}>RDP src {ip}</Tag>)}
+        {pivots.map((p,i)=><Tag key={"p"+i} color={C.evil}>pivot {p}</Tag>)}
+        <Tag color={C.warn}>{u.count} USB devices</Tag>
+        <Tag color={C.evil}>{w.exfil_count} exfil downloads</Tag>
+        <Tag color={C.warn}>{bf.total_failures||0} brute-force fails</Tag>
+      </div>
+
+      <div className="mono text-[10px] text-slate-600 mt-3">
+        RDP via TerminalServices + Security logs · USB via SYSTEM hive (RegRipper) · downloads via Edge history ·
+        execution via UserAssist — all read-only, every call in the audit trail.
+      </div>
+    </div>
+  );
+}
+
+function Console({log, running}) {
+  const ref = React.useRef(null);
+  React.useEffect(()=>{ if(ref.current) ref.current.scrollTop = ref.current.scrollHeight; },[log]);
+  return (
+    <div className="panel glow rounded-2xl p-4 mb-5">
+      <div className="flex items-center gap-2 mb-2">
+        <Dot color={running?C.warn:C.ok} />
+        <span className="mono text-xs text-slate-300">{running?"live investigation log":"investigation log"}</span>
+        <span className="mono text-[10px] text-slate-600">· typed read-only MCP tools · disk ⇄ memory · evidence never modified</span>
+      </div>
+      <div ref={ref} className="mono text-[11px] leading-relaxed rounded-lg p-3 max-h-72 overflow-auto"
+           style={{background:"#05070b", border:"1px solid #161d29"}}>
+        {log.map((l,i)=>{
+          const lv = LEVELS[l.level] || LEVELS.boot;
+          return (
+            <div key={i} className="flex gap-2 pop" style={{animationDuration:".22s"}}>
+              <span className="text-slate-600 shrink-0">{l.t}</span>
+              <span className="shrink-0" style={{color:lv.c}}>{lv.t}</span>
+              {l.tool && <span className="shrink-0" style={{color:C.warn}}>{l.tool}</span>}
+              <span style={{color:l.level==="conflict"?C.evil:"#aab6c6"}}>{l.msg}</span>
+            </div>
+          );
+        })}
+        {running && <div className="flex gap-2"><span className="text-slate-600">{now()}</span>
+          <span className="pulse" style={{color:C.ok}}>▋</span></div>}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [ov,setOv]=useState(null), [data,setData]=useState(null), [traces,setTraces]=useState(null),
+        [score,setScore]=useState(null), [audit,setAudit]=useState(null), [log,setLog]=useState([]),
+        [agentReport,setAgentReport]=useState(null), [casef,setCasef]=useState(null),
+        [running,setRunning]=useState(false), [done,setDone]=useState(false);
+
+  useEffect(()=>{ api("/api/overview").then(setOv); },[]);
+
+  // populate the scored/deterministic report (the proof) after any run
+  async function loadReport(){
+    const d=await api("/api/detect"); setData(d);
+    const tr=await api("/api/traces"); setTraces(tr);
+    const sc=await api("/api/score"); setScore(sc);
+    const cf=await api("/api/casefindings"); setCasef(cf);
+    const au=await api("/api/audit"); setAudit(au.audit);
+    setRunning(false); setDone(true);
+  }
+
+  // LIVE Cerebras agent: stream each ReAct round into the console via SSE, then show the
+  // deterministic scored proof. Falls back to the saved transcript if the live stream fails.
+  function agentRun(){
+    setData(null); setTraces(null); setScore(null); setAudit(null); setLog([]); setDone(false); setAgentReport(null);
+    setRunning(true);
+    const add=(level,msg,tool)=>setLog(L=>[...L,{t:now(),level,msg,tool}]);
+    add("mcp","connecting to Cerebras · autonomous ReAct agent (gpt-oss-120b)");
+    let settled=false;
+
+    async function fallback(why){
+      if(settled) return; settled=true;
+      add("conflict",`live stream unavailable (${why}) — replaying saved agent run`);
+      try{
+        const t=await api("/api/agent");
+        if(t && t.rounds){
+          for(const r of t.rounds){ replayRound(r,add); await sleep(420); }
+          if(t.final_report){ setAgentReport({model:t.model,report:t.final_report,live:false}); add("done","agent FINDINGS report received"); }
+        } else { add("conflict","no saved agent run available"); }
+      }catch(e){ add("conflict","fallback failed: "+e.message); }
+      await loadReport();
+    }
+
+    let es;
+    try { es=new EventSource("/api/agent/stream"); }
+    catch(e){ fallback("no EventSource"); return; }
+
+    es.onmessage=async (m)=>{
+      let ev; try{ ev=JSON.parse(m.data); }catch(_){ return; }
+      if(ev.type==="tools") add("mcp",`MCP server up · ${ev.tools.length} read-only tools offered to ${ev.model||"the model"}`);
+      else if(ev.type==="thinking") add("engine",`round ${ev.round} · model deciding next tool…`);
+      else if(ev.type==="round") replayRound(ev,add);
+      else if(ev.type==="final"){ setAgentReport({model:ev.model,report:ev.report,live:true}); add("done","agent FINDINGS report received"); }
+      else if(ev.type==="error"){ es.close(); await fallback(ev.error); }
+      else if(ev.type==="done"){ if(!settled){ settled=true; es.close(); await loadReport(); } }
+    };
+    es.onerror=async ()=>{ es.close(); await fallback("connection error"); };
+  }
+
+  async function run(){
+    setData(null); setTraces(null); setScore(null); setAudit(null); setLog([]); setDone(false); setAgentReport(null); setCasef(null);
+    setRunning(true);
+    const o = ov || await api("/api/overview"); if(!ov) setOv(o);
+    const add = async (level, msg, tool, ms=380) => {
+      setLog(L => [...L, {t:now(), level, msg, tool}]); await sleep(ms);
+    };
+
+    // 0 — case + integrity
+    await add("boot", `case ROCBA · ${o.host} · memory captured ${o.memory_capture}`);
+    await add("boot", `evidence (read-only): ${o.evidence.map(e=>e.name).join(", ")}`);
+    await add("ok",   `integrity: originals r--r--r-- · ${o.integrity.write_or_exec_tools} write/exec tools in MCP surface`);
+    await add("mcp",  `spawning Custom MCP Server (stdio) · ${o.tools.length} typed read-only tools`, null, 460);
+
+    // 1 — disk: $MFT timestomp sweep
+    await add("call", "scanning $MFT — $SI vs $FN across the volume…", "get_timestomp_candidates()", 520);
+    const d = await api("/api/detect"); setData(d);
+    const ts = d.timestomp.findings.find(f=>f.verdict==="confirmed_timestomp");
+    await add("res",  `high-confidence candidates after FP suppression: ${d.timestomp.findings.length}`, "get_timestomp_candidates()");
+    if(ts){
+      await add("call", "comparing forgeable $SI against $FN (which timestomp can't fake)…", "detect_timestomps()", 480);
+      await add("conflict", `⚔ ${ts.path.split("/").pop()} · $SI ${ts.si_crtime} vs $FN ${ts.fn_crtime} · backdated ${ts.backdate_days}d`, null, 680);
+    }
+
+    // 2 — memory: spine join corroborates the true time
+    await add("call", "joining disk ⇄ memory spine (Volatility pslist + cmdline)…", "get_process_list()", 520);
+    if(ts && ts.memory){
+      await add("mem", `pid ${ts.memory.matched_pid} runs from that path · started ${ts.memory.process_start}`, null);
+      await add("conflict", "→ live execution proves the file is recent — disk $SI was forged", null, 640);
+    }
+
+    // 3 — masquerade: name vs canonical path
+    await add("call", "checking system-binary names against their canonical paths…", "detect_masquerade()", 500);
+    const mq = d.masquerade.findings.find(f=>/masquerade/.test(f.verdict));
+    if(mq){
+      await add("conflict", `⚔ ${mq.name} at ${mq.path} · should be ${(mq.expected||[])[0]}`, null, 680);
+    }
+
+    // 3b — real-case intrusion intel (4 tools) via the read-only MCP surface
+    await add("call", "reconstructing the real intrusion from the live host…", "get_remote_access / get_usb_devices / get_web_activity / get_program_execution", 520);
+    const cf = await api("/api/casefindings"); setCasef(cf);
+    const piv = [...new Set((cf.remote.outbound_rdp||[]).map(o=>o.target))];
+    await add("conflict", `remote RDP from ${(cf.remote.remote_source_ips||[]).join(", ")||"—"} · outbound pivot ${piv.join(", ")||"—"}`, null, 600);
+    await add("conflict", `exfil: ${cf.web.exfil_count} download(s) incl. corporate IP → removable media`, null, 600);
+    await add("res", `${cf.usb.count} USB devices · ${cf.execution.execution_count} notable executions · ${cf.remote.bruteforce?.total_failures||0} brute-force fails`, null);
+
+    // 4 — engine self-correction ladder
+    const tr = await api("/api/traces"); setTraces(tr);
+    if(tr.timestomp) await add("engine",
+      `self-correction (timestomp): ${tr.timestomp.trace.map(s=>s.working_verdict).join(" → ")} · caught@iter${tr.timestomp.caught_at_iteration}`, null, 520);
+    if(tr.masquerade) await add("engine",
+      `self-correction (masquerade): ${tr.masquerade.trace.map(s=>s.working_verdict).join(" → ")} · caught@iter${tr.masquerade.caught_at_iteration}`, null, 520);
+
+    // 5 — scoring vs the blind key
+    await add("call", "scoring vs blind ground-truth key (the model never reads it)…", null, 460);
+    const sc = await api("/api/score"); setScore(sc);
+    const T = sc.metrics.totals;
+    await add("score", `catch@iter1 ${T.catch_at_iter1}/${T.injections} (${T.iter1_catch_rate*100}%) → catch@final ${T.catch_at_final}/${T.injections} (${T.final_catch_rate*100}%)`, null, 480);
+    await add("ok", `${T.false_positives} false positives · ${T.false_negatives} false negatives · ${sc.candidates} candidates scanned`);
+
+    const au = await api("/api/audit"); setAudit(au.audit);
+    await add("done", "investigation complete — rendering cross-source report", null, 300);
+    setRunning(false); setDone(true);
+  }
+
+  const tsFind = data?.timestomp?.findings?.find(f=>f.verdict==="confirmed_timestomp");
+  const mqFind = data?.masquerade?.findings?.find(f=>/masquerade/.test(f.verdict));
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <Header ov={ov} onRun={run} onAgent={agentRun} running={running} done={done} />
+      {!done && !running && <Briefing ov={ov} />}
+      {!done && <Evidence ov={ov} />}
+      {(running || done) && log.length>0 && <Console log={log} running={running} />}
+
+      {done && (<div className="flex flex-col gap-5">
+        <HowToRead />
+        {agentReport && <AgentReport r={agentReport} />}
+
+        <SectionLabel icon="🧪" color={C.warn}
+          title="METHOD VALIDATION — planted ground truth"
+          sub="The two contradictions below were injected by us at known byte offsets to MEASURE detection accuracy — they are not the real-case evil. They prove the cross-source method is rigorous, self-correcting, and falsifiable (blind-scored)." />
+        <div className="grid md:grid-cols-2 gap-5">
+          {tsFind && <ContradictionCard f={tsFind} kind="timestomp" />}
+          {mqFind && <ContradictionCard f={mqFind} kind="masquerade" />}
+        </div>
+        <div className="grid md:grid-cols-2 gap-5">
+          <SelfCorrection trace={traces?.timestomp} title="Self-correction · timestomp" />
+          <SelfCorrection trace={traces?.masquerade} title="Self-correction · masquerade" />
+        </div>
+        <Scoreboard m={score} />
+
+        <SectionLabel icon="🌐" color={C.evil}
+          title="REAL CASE FINDINGS — the actual ROCBA intrusion"
+          sub="Genuine, un-planted ROCBA evidence (RDP/Security logs + SYSTEM hive) surfaced live by the read-only MCP tools. Open-ended hunt — no answer key — this is what actually happened on the host." />
+        {casef && <CaseFindings cf={casef} />}
+
+        <Audit lines={audit} />
+        <div className="text-center mono text-[11px] text-slate-600 pb-4">
+          findings from typed read-only MCP tools · self-correction by the engine · scored vs a blind key · evidence never modified
+        </div>
+      </div>)}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

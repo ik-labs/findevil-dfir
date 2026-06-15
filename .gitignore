@@ -1,0 +1,35 @@
+# secrets / env
+*.env
+.cerebras.env
+*.pem
+
+# SANS FOR500 course material (copyrighted — not redistributed)
+ROCBA-BACKGROUND.pdf
+ROCBA-BACKGROUND.md
+
+# forensic evidence + large case artifacts (not ours to distribute)
+*.e01
+*.E01
+*.dd
+*.raw
+*.mem
+*.dmp
+*.body
+*.zip
+cases/
+evidence/
+output/
+work/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# node / misc
+node_modules/
+.DS_Store
+
+# agent project config (local)
+.claude/

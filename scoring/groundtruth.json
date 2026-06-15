@@ -1,0 +1,41 @@
+{
+  "_README": "ANSWER SHEET / accuracy oracle for injected contradictions. ANTI-LEAKAGE: this file and the scoring/ dir must NEVER be inside the agent's working directory or context during a run. The scoring harness reads it AFTER the run to grade agent output. Leaking it to the model invalidates every accuracy number.",
+  "injections": [
+    {
+      "inj_id": "INJ-01",
+      "type": "timestomp",
+      "mitre": "T1070.006",
+      "image": "Rocba-INJ-01.mft (extracted $MFT from rocba-cdrive.e01, single $SI edit)",
+      "target_path": "C:/Users/fredr/AppData/Local/Microsoft/OneDrive/OneDrive.exe",
+      "mft_entry": 104046,
+      "attribute_modified": "$STANDARD_INFORMATION creation time",
+      "old_si_creation": "2020-10-27T02:56:48Z",
+      "new_si_creation": "2019-03-15T08:00:00Z",
+      "fn_creation_unchanged": "2020-10-27T02:56:48Z",
+      "byte_offset_in_extracted_mft": 106543184,
+      "byte_offset_detail": "record 104046 at 104046*1024=106543104, + $SI content offset 80 = 106543184; 8-byte FILETIME",
+      "backdate_days": 591.79,
+      "memory_corroboration": "OneDrive.exe resident in real memory (pids incl. 6188, 9648), start ~2020-11-11T08:14Z — consistent with the true $FN (2020-10-27), NOT the forged $SI (2019-03-15).",
+      "expected_conclusion": "Timestomp: visible $SI creation backdated ~592 days; true creation ($FN) plus the live process start prove the file is recent. HIGH confidence, evidence-backed.",
+      "expected_verdict": "confirmed_timestomp",
+      "is_known_published": false,
+      "notes": "Novel injection at a documented byte offset — absent from any public ROCBA walkthrough. This is the unfakeable proof of genuine byte-level reasoning."
+    },
+    {
+      "inj_id": "INJ-02",
+      "type": "masquerade",
+      "mitre": "T1036",
+      "image": "Rocba-INJ-01.mft (same extracted $MFT, $FN rename)",
+      "target_path": "C:/Users/fredr/AppData/Local/Microsoft/OneDrive/svchost.exe",
+      "mft_entry": 104210,
+      "attribute_modified": "$FILE_NAME filename (both 8.3 and long names)",
+      "old_name": "OneDriveStandaloneUpdater.exe",
+      "new_name": "svchost.exe",
+      "canonical_location": ["windows/system32/svchost.exe", "windows/syswow64/svchost.exe"],
+      "expected_conclusion": "A file named svchost.exe (a trusted Windows system binary) is present in a user-writable OneDrive directory, not its canonical System32/SysWOW64 location — masquerade by name+location (T1036). Not seen executing in memory (disk-resident).",
+      "expected_verdict": "masquerade",
+      "is_known_published": false,
+      "notes": "Defeats name-based trust: a one-shot agent reads 'svchost.exe' and assumes a system process. Caught only by correlating name against canonical path."
+    }
+  ]
+}
