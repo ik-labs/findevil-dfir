@@ -210,18 +210,22 @@ def _main() -> int:
     ap.add_argument("--quiet", action="store_true", help="only print the final report")
     args = ap.parse_args()
 
-    t = asyncio.run(run(args.task, args.model, args.max_rounds, args.trace_out))
+    async def _printer(ev):
+        """Stream the run live to the terminal (round by round) — good for the screencast."""
+        et = ev.get("type")
+        if et == "tools":
+            print(f"MCP server up · {len(ev['tools'])} read-only tools offered to {ev.get('model')}", flush=True)
+        elif et == "thinking":
+            print(f"\n── round {ev['round']} · querying model…", flush=True)
+        elif et == "round":
+            tu = ev.get("token_usage") or {}
+            tok = f"   [tokens: {tu.get('total_tokens','?')}]" if tu else ""
+            for c in ev.get("tool_calls", []):
+                print(f"  → {c['name']}({json.dumps(c['args'])}){tok}", flush=True)
+                print(f"    {c['result_preview'][:220].replace(chr(10), ' ')}", flush=True)
 
-    if not args.quiet:
-        for rl in t["rounds"]:
-            tu = rl.get("token_usage") or {}
-            tok = f" · tokens: {tu.get('total_tokens','?')} (in {tu.get('prompt_tokens','?')}/out {tu.get('completion_tokens','?')})" if tu else ""
-            print(f"\n── round {rl['round']} ({rl['ts']}){tok} ──")
-            if rl["assistant"]:
-                print("agent:", rl["assistant"][:1000])
-            for c in rl["tool_calls"]:
-                print(f"  → tool {c['name']}({json.dumps(c['args'])})")
-                print(f"    {c['result_preview'][:300]}")
+    t = asyncio.run(run(args.task, args.model, args.max_rounds, args.trace_out,
+                        emit=(None if args.quiet else _printer)))
     tt = t.get("token_usage") or {}
     print("\n================ FINAL REPORT ================\n")
     print(t["final_report"])
