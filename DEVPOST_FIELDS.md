@@ -100,4 +100,11 @@ reported as **disk-resident** precisely because it was **not** seen executing �
 tool result, and every call is in the audit log. The deterministic engine (not the LLM) is the oracle
 for the scored numbers, so accuracy does not depend on model behavior.
 
+**Evidence integrity (and bypass behavior).** Originals are `chmod a-w` + mounted read-only; injections
+go only into a *copy* of the extracted `$MFT`. The agent's surface is **11 typed read-only tools
+(`get_*`/`detect_*`) with zero write/exec/delete** — integrity is *architectural, not prompt-based*.
+Boundary test (`python3 agent/_wiring_check.py`): simulated `run_shell` / `write_file` /
+`delete_artifact` calls all return **"Unknown tool"** — the capability to modify evidence does not
+exist to call. There is no shell to escape to.
+
 Full version: https://github.com/ik-labs/findevil-dfir/blob/main/ACCURACY.md
