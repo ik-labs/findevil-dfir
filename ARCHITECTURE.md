@@ -1,9 +1,24 @@
 # Architecture
 
+**Architectural pattern: `Custom MCP Server`.** (Of the four options — Direct Agent Extension,
+**Custom MCP Server**, Multi-Agent Framework, Alternative Agentic IDE — this is a Custom MCP Server:
+forensic capability is exposed to a model-agnostic agent purely as typed MCP tools.)
+
 Components: **evidence sources → SIFT extraction → deterministic forensic core → Custom MCP Server
 (read-only) → autonomous agent → output pipeline.** The hard logic lives in the deterministic core
 and is exposed only through typed, read-only MCP tools (0 write/exec) — so the agent (any model) can
 investigate but **cannot modify evidence**.
+
+### Guardrails: architectural, not prompt-based
+
+| Guardrail type | Typical approach | This project |
+|---|---|---|
+| **Prompt-based** (what we avoid) | "Please treat evidence as read-only" in a system prompt, while a shell/write tool still exists | ❌ not relied on |
+| **Architectural** (what we use) | The capability to modify simply **does not exist** in the tool surface | ✅ 0 write/exec tools; bypass attempts return *"Unknown tool"* (see `agent/_wiring_check.py`) |
+
+In the diagram below, the **Custom MCP Server** node is the single chokepoint: the agent can reach
+evidence *only* through its 11 read-only tools. The dashed boundary is enforced by **absence of
+capability**, not by instructions to the model.
 
 ```mermaid
 flowchart LR

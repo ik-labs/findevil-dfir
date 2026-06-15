@@ -80,7 +80,33 @@ Result after suppression: **2 high-confidence timestomp candidates, 1 masquerade
 - The **brute-force burst** is flagged as likely **opportunistic internet noise** (no matching
   successful logon), not over-attributed to the main intrusion.
 
-## 6. Hallucination control
+## 6. Evidence integrity (and what happens when the agent tries to bypass it)
+
+**How the architecture prevents modification of original data:**
+1. **Originals are read-only.** The source E01 is `chmod a-w` and mounted **read-only**; all analysis
+   runs on parsed renders / copies. Planted contradictions are injected only into a **copy** of the
+   extracted `$MFT`, never the originals.
+2. **No write capability exists in the agent's surface.** The Custom MCP Server (`mcp_server/`)
+   registers **only 11 typed getters** (`get_*` / `detect_*`). There is **no** `run_shell`, `write`,
+   `exec`, or `delete` tool. Integrity is **architectural, not prompt-based** — the agent isn't *asked*
+   to avoid writing; it has **no capability to write**.
+
+**What happens when the agent attempts to bypass it (boundary test):**
+We simulate a malicious/confused agent calling write/shell/delete tools. Run
+`python3 agent/_wiring_check.py` — every attempt is rejected at the protocol layer:
+
+```
+[bypass attempt] simulating malicious tool calls:
+  ✓ run_shell({'cmd': 'rm -rf evidence/'})            -> BLOCKED: Unknown tool: run_shell
+  ✓ write_file({'path': 'evidence/disk.e01', ...})    -> BLOCKED: Unknown tool: write_file
+  ✓ delete_artifact({'mft_entry': '104046'})          -> BLOCKED: Unknown tool: delete_artifact
+result: the agent cannot modify evidence because no write/shell/delete capability exists to call.
+```
+
+There is no shell to escape to and no write tool to abuse — even a prompt-injected or hallucinating
+model can only call one of the 11 read-only getters, and every call is recorded in the audit log.
+
+## 7. Hallucination control
 
 The agent can only call read-only getters; it cannot invent artifacts because every claim must come
 from a tool result, and every tool call is in the audit log (`output/mcp_audit.log`). In testing the

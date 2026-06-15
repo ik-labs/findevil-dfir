@@ -90,6 +90,8 @@ to call. So the system is **model-agnostic** and the accuracy doesn't depend on 
 | `scoring/` | key-blind `run_case.py` + the only key-reader `score.py` + `groundtruth.json` |
 | `harness/` | inject/verify planted contradictions |
 | `webui/` | FastAPI backend + single-file React dashboard |
+| `examples/` | sample agent execution log (component #8) — round-by-round, timestamps + token usage |
+| `ARCHITECTURE.md` · `ACCURACY.md` | architecture diagram (pattern + guardrails) · accuracy + evidence-integrity report |
 | `00`–`05`, `TASKS.md` | working docs / build log (the lab notebook) |
 
 ## Quickstart
